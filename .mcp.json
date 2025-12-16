@@ -1,0 +1,10 @@
+{
+    "mcpServers": {
+      "graphiti-local": {
+        "type": "stdio",
+        "command": "/home/donbr/graphiti-fastmcp/scripts/run_mcp_server.sh",
+        "args": []
+      }
+    }
+  }
+  
