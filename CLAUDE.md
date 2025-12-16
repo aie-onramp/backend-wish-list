@@ -36,9 +36,11 @@ backend-wish-list/
 **Critical Design Pattern:**
 - All routes handled by single `api/index.py` file via Vercel routing
 - `vercel.json` routes all requests (`/(.*)`) to `/api/index.py`
-- CORS middleware configured to allow all origins (`allow_origins=["*"]`)
+- **SECURITY**: CORS restricted to specific frontend origins (prevents OpenAI API abuse)
+- **SECURITY**: API docs disabled in production (`ENVIRONMENT=production`)
 - No database, no state management - stateless API design
 - OpenAI client initialized once at module level for reuse
+- Lifespan handler validates API key on startup (warns, doesn't crash)
 
 ## Common Development Commands
 
@@ -214,19 +216,35 @@ This backend is designed to work with a Next.js frontend (see parent directory `
 kill -9 $(lsof -ti tcp:8000)
 ```
 
-### CORS Errors from Frontend
+### CORS Origin Not Allowed Error
 
-**Problem:** Frontend origin not allowed or CORS middleware misconfigured.
+**Problem:** Frontend getting CORS errors when calling backend.
 
 **Solutions:**
-- Verify CORS middleware in `api/index.py` includes:
-  ```python
-  allow_origins=["*"],
-  allow_methods=["*"],
-  allow_headers=["*"]
-  ```
-- Check browser console for exact CORS error message
-- Ensure OPTIONS preflight requests are handled (FastAPI does this automatically)
+- **Local Development:** Ensure `ALLOWED_ORIGINS` in `.env` includes your frontend URL (e.g., `http://localhost:3000`)
+- **Production:** Set `ALLOWED_ORIGINS` in Vercel Dashboard → Project Settings → Environment Variables to your deployed frontend URL
+- **Vercel Preview Deployments:** Add preview deployment URL to comma-separated list in `ALLOWED_ORIGINS`
+- **Check browser console** for exact CORS error message showing which origin was blocked
+
+**Example `.env` configuration:**
+```bash
+# Local development
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+
+# Production (set in Vercel Dashboard)
+ALLOWED_ORIGINS=https://your-frontend.vercel.app
+```
+
+### API Documentation Not Available (/docs)
+
+**Problem:** `/docs`, `/redoc`, or `/openapi.json` endpoint returns 404.
+
+**Explanation:** By design, API documentation is disabled in production (`ENVIRONMENT=production`) for security.
+
+**Solutions:**
+- **Local Development:** Ensure `ENVIRONMENT` is NOT set, or set to `development` in `.env`
+- **Production:** This is intentional for security - docs expose API structure and make attacks easier
+- **Temporary Access in Production:** Temporarily unset `ENVIRONMENT` variable in Vercel Dashboard, access docs, then re-enable
 
 ### OpenAI API Errors
 
