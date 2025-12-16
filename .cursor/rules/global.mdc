@@ -1,0 +1,220 @@
+---
+description: Core conventions for minimal FastAPI backends with OpenAI integration
+globs: ["**/*.py"]
+alwaysApply: true
+---
+
+# Development Standards
+
+## Role Definition
+
+You are developing a **minimal FastAPI backend** with OpenAI integration, specializing in:
+- **FastAPI** for simple REST APIs
+- **Pydantic v2** for request/response validation
+- **OpenAI SDK** for direct LLM API calls
+- **Python best practices** for clean, maintainable code
+
+## Core Philosophy: Keep It Simple
+
+**For this simple application, follow these principles:**
+
+1. **Understand Requirements** → Clarify if anything is unclear
+2. **Use Pydantic Models** → Validate request/response data
+3. **Handle Errors** → Use HTTPException for all errors
+4. **Environment Variables** → Never hardcode secrets
+
+---
+
+## Technology Stack
+
+| Category | Use | Avoid |
+|----------|-----|-------|
+| HTTP Framework | FastAPI | Flask, Django |
+| Validation | Pydantic v2 | dataclasses |
+| LLM Integration | OpenAI SDK | Complex agent frameworks |
+| HTTP Client | httpx (async) | requests (sync) |
+| Environment Config | python-dotenv | Hardcoded values |
+| Package Manager | uv | conda |
+
+---
+
+## Python Style Conventions
+
+### Naming
+
+```python
+# Variables and functions: snake_case
+user_name = "john"
+def process_message(text: str) -> str: ...
+
+# Classes: PascalCase
+class ChatRequest(BaseModel): ...
+
+# Constants: UPPER_SNAKE_CASE
+MAX_MESSAGE_LENGTH = 1000
+DEFAULT_MODEL = "gpt-4o-mini"
+
+# Private: leading underscore
+_internal_cache = {}
+def _validate_input(data: dict) -> bool: ...
+```
+
+### Type Hints (REQUIRED)
+
+```python
+# ✅ Always type function signatures
+def chat(request: ChatRequest) -> ChatResponse:
+    ...
+
+# ✅ Use modern generic syntax (Python 3.10+)
+items: list[str]           # Not List[str]
+mapping: dict[str, int]    # Not Dict[str, int]
+optional: str | None       # Not Optional[str]
+```
+
+### Import Organization
+
+```python
+# 1. Standard library
+import os
+from typing import Any
+
+# 2. Third-party packages
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from openai import OpenAI
+
+# 3. Local application (if you add modules)
+from .models import ChatRequest
+```
+
+---
+
+## Project Structure
+
+For this minimal backend:
+
+```
+backend-wish-list/
+├── api/
+│   └── index.py              # Main FastAPI app (single file)
+├── .env                      # Environment variables (NEVER commit)
+├── .env.example              # Template (commit this)
+├── pyproject.toml            # Dependencies
+├── requirements.txt          # For Vercel deployment
+└── vercel.json              # Serverless config
+```
+
+---
+
+## Error Handling Pattern
+
+```python
+from fastapi import HTTPException, status
+
+# Always use HTTPException for errors
+if not api_key:
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="OPENAI_API_KEY not configured"
+    )
+
+# Catch and wrap external errors
+try:
+    response = client.chat.completions.create(...)
+except Exception as e:
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Error calling OpenAI API: {str(e)}"
+    )
+```
+
+---
+
+## Environment Configuration
+
+### Using python-dotenv
+
+```python
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable not set")
+```
+
+### .env File (Never Commit)
+
+```bash
+# .env
+OPENAI_API_KEY=sk-proj-...
+```
+
+### .env.example File (Commit This)
+
+```bash
+# .env.example
+OPENAI_API_KEY=your-openai-api-key-here
+```
+
+---
+
+## Async Patterns
+
+This application uses **synchronous** endpoints (simpler for Vercel serverless).
+
+If you need async:
+
+```python
+# Async endpoint
+@app.post("/api/chat")
+async def chat(request: ChatRequest) -> ChatResponse:
+    ...
+
+# Async HTTP client
+from httpx import AsyncClient
+
+async with AsyncClient() as client:
+    response = await client.get(url)
+```
+
+---
+
+## CORS Configuration
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+# Development: Allow all origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+# Production: Restrict to specific frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://your-frontend.vercel.app"],
+    allow_methods=["POST", "GET"],
+    allow_headers=["*"]
+)
+```
+
+---
+
+## DO NOT
+
+- ❌ Use `print()` for logging (use proper logging if needed)
+- ❌ Hardcode API keys or secrets
+- ❌ Skip type hints on function signatures
+- ❌ Use `Any` type without good reason
+- ❌ Mix sync and async code carelessly
+- ❌ Forget CORS middleware for frontend access
+- ❌ Over-engineer with unnecessary abstractions
+- ❌ Add complexity without clear need

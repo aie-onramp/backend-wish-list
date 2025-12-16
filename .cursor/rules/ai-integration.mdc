@@ -1,0 +1,367 @@
+---
+description: OpenAI API integration patterns for simple LLM-powered endpoints
+globs: ["**/api/**/*.py", "**/main.py"]
+alwaysApply: false
+---
+
+# AI Integration Standards
+
+## Core Philosophy: Direct and Simple
+
+This guide covers **direct OpenAI SDK usage** for simple chat endpoints. No agents, no complex workflows—just straightforward API calls.
+
+---
+
+## 1. OpenAI Client Setup
+
+### Basic Client Initialization
+
+```python
+from openai import OpenAI
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Initialize client once at module level
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Verify API key is configured
+if not os.getenv("OPENAI_API_KEY"):
+    raise ValueError("OPENAI_API_KEY environment variable not set")
+```
+
+### Async Client (if using async endpoints)
+
+```python
+from openai import AsyncOpenAI
+import os
+
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+```
+
+---
+
+## 2. Chat Completions
+
+### Basic Chat Completion
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+def chat_with_ai(user_message: str) -> str:
+    """Send message to OpenAI and return response."""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": user_message}
+        ]
+    )
+
+    return response.choices[0].message.content
+```
+
+### With Custom System Prompt
+
+```python
+def chat_with_persona(user_message: str, persona: str) -> str:
+    """Chat with a specific AI persona."""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": persona},
+            {"role": "user", "content": user_message}
+        ],
+        temperature=0.7,  # 0.0-2.0, higher = more creative
+        max_tokens=500     # Limit response length
+    )
+
+    return response.choices[0].message.content
+```
+
+### Async Version
+
+```python
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI()
+
+async def chat_with_ai_async(user_message: str) -> str:
+    """Async chat completion."""
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": user_message}
+        ]
+    )
+
+    return response.choices[0].message.content
+```
+
+---
+
+## 3. Error Handling
+
+### Robust Error Handling
+
+```python
+from openai import OpenAI, APIError, RateLimitError, APIConnectionError
+from fastapi import HTTPException, status
+
+client = OpenAI()
+
+def safe_chat_completion(user_message: str) -> str:
+    """Chat completion with proper error handling."""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_message}
+            ]
+        )
+        return response.choices[0].message.content
+
+    except RateLimitError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please try again later."
+        )
+
+    except APIConnectionError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to connect to OpenAI API"
+        )
+
+    except APIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"OpenAI API error: {str(e)}"
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}"
+        )
+```
+
+---
+
+## 4. FastAPI Integration
+
+### Complete Chat Endpoint Example
+
+```python
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel
+from openai import OpenAI, APIError
+import os
+
+app = FastAPI()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+class ChatRequest(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    reply: str
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    """Chat endpoint powered by OpenAI."""
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="OPENAI_API_KEY not configured"
+        )
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant."
+                },
+                {
+                    "role": "user",
+                    "content": request.message
+                }
+            ]
+        )
+
+        return ChatResponse(reply=response.choices[0].message.content)
+
+    except APIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error calling OpenAI API: {str(e)}"
+        )
+```
+
+---
+
+## 5. Model Selection
+
+### Available Models
+
+| Model | Cost (per 1K tokens) | Best For |
+|-------|---------------------|----------|
+| **gpt-4o** | Input: $0.0025, Output: $0.01 | Complex reasoning, high quality |
+| **gpt-4o-mini** | Input: $0.00015, Output: $0.0006 | Simple tasks, cost-effective |
+| **gpt-4-turbo** | Input: $0.01, Output: $0.03 | Balanced performance |
+
+### Choosing the Right Model
+
+```python
+# For simple chat: gpt-4o-mini (cheapest, fastest)
+model = "gpt-4o-mini"
+
+# For complex reasoning: gpt-4o
+model = "gpt-4o"
+
+# Use in your API call
+response = client.chat.completions.create(
+    model=model,
+    messages=[...]
+)
+```
+
+---
+
+## 6. Environment Configuration
+
+### .env File
+
+```bash
+# .env (never commit this file!)
+OPENAI_API_KEY=sk-proj-...
+```
+
+### Loading Environment Variables
+
+```python
+import os
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
+
+# Access API key
+api_key = os.getenv("OPENAI_API_KEY")
+
+if not api_key:
+    raise ValueError("OPENAI_API_KEY environment variable not set")
+```
+
+---
+
+## 7. Response Parameters
+
+### Control Response Behavior
+
+```python
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[...],
+
+    # Temperature: 0.0 = deterministic, 2.0 = very creative
+    temperature=0.7,
+
+    # Max tokens to generate
+    max_tokens=500,
+
+    # Nucleus sampling (alternative to temperature)
+    top_p=1.0,
+
+    # Penalize repeated tokens
+    frequency_penalty=0.0,  # 0.0 to 2.0
+    presence_penalty=0.0    # 0.0 to 2.0
+)
+```
+
+---
+
+## 8. Usage Tracking
+
+### Extract Token Usage
+
+```python
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[...]
+)
+
+# Access usage information
+usage = response.usage
+print(f"Prompt tokens: {usage.prompt_tokens}")
+print(f"Completion tokens: {usage.completion_tokens}")
+print(f"Total tokens: {usage.total_tokens}")
+
+# Calculate cost (for gpt-4o-mini)
+input_cost = (usage.prompt_tokens / 1000) * 0.00015
+output_cost = (usage.completion_tokens / 1000) * 0.0006
+total_cost = input_cost + output_cost
+print(f"Estimated cost: ${total_cost:.6f}")
+```
+
+---
+
+## 9. Multi-Turn Conversations
+
+### Conversation History Pattern
+
+```python
+def chat_with_history(
+    user_message: str,
+    conversation_history: list[dict]
+) -> tuple[str, list[dict]]:
+    """Chat with conversation history."""
+    # Add user message to history
+    conversation_history.append({
+        "role": "user",
+        "content": user_message
+    })
+
+    # Get response
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=conversation_history
+    )
+
+    assistant_reply = response.choices[0].message.content
+
+    # Add assistant reply to history
+    conversation_history.append({
+        "role": "assistant",
+        "content": assistant_reply
+    })
+
+    return assistant_reply, conversation_history
+
+# Usage
+history = [
+    {"role": "system", "content": "You are a helpful assistant."}
+]
+
+reply1, history = chat_with_history("Hello!", history)
+reply2, history = chat_with_history("What's the weather?", history)
+```
+
+---
+
+## DO NOT
+
+- ❌ Hardcode API keys in code (use environment variables)
+- ❌ Skip error handling for API calls
+- ❌ Use synchronous `OpenAI()` client in async endpoints (use `AsyncOpenAI()`)
+- ❌ Forget to check if API key is configured before making requests
+- ❌ Ignore token usage and costs for production apps
+- ❌ Store full conversation history indefinitely (implement truncation)
+- ❌ Use expensive models (gpt-4o) when cheaper ones (gpt-4o-mini) suffice
