@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from openai import OpenAI, APIError, RateLimitError, APIConnectionError
 import os
 import logging
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,34 +16,64 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Lifespan handler for startup/shutdown logic
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager for startup/shutdown logic."""
+    # Startup: validate critical configuration (warn, don't crash)
+    if not os.getenv("OPENAI_API_KEY"):
+        logger.warning("⚠️  OPENAI_API_KEY not configured - API calls will fail")
+    else:
+        logger.info("✓ OPENAI_API_KEY configured")
+    logger.info("Application startup complete")
+    yield
+    # Shutdown: cleanup if needed
+    logger.info("Application shutdown")
+
+# Disable API docs in production to reduce attack surface
+# Development: docs accessible at /docs, /redoc, /openapi.json
+# Production: all documentation endpoints disabled
+if os.getenv("ENVIRONMENT") == "production":
+    docs_url = None
+    redoc_url = None
+    openapi_url = None
+else:
+    docs_url = "/docs"
+    redoc_url = "/redoc"
+    openapi_url = "/openapi.json"
+
 app = FastAPI(
     title="Santa's Chat API",
     description="Chat with St. Nicholas powered by AI",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url=docs_url,
+    redoc_url=redoc_url,
+    openapi_url=openapi_url
 )
 
-# CORS so the frontend can talk to backend
-# Configure allowed origins from environment variable
-# Format: comma-separated list, e.g., "https://app1.com,https://app2.com"
-# Defaults to "*" for development if not set
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
-allowed_origins = (
-    allowed_origins_env.split(",") if allowed_origins_env != "*" else ["*"]
-)
+# CORS configuration - restrict to legitimate frontend origin(s)
+# SECURITY: Prevents unauthorized sites from calling backend and consuming OpenAI credits
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+
+if not allowed_origins_env:
+    # Local development defaults (Next.js default port 3000, Vite default port 5173)
+    allowed_origins = ["http://localhost:3000", "http://localhost:5173"]
+    logger.warning("⚠️  ALLOWED_ORIGINS not set - using local development defaults")
+else:
+    # Production: comma-separated list from environment
+    allowed_origins = allowed_origins_env.split(",")
+    logger.info(f"✓ CORS configured for origins: {allowed_origins}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    allow_credentials=False if allowed_origins == ["*"] else True
+    allow_origins=allowed_origins,     # Specific origins only
+    allow_credentials=False,            # No auth system, no credentials needed
+    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_headers=["*"]
 )
 
-# Validate OpenAI API key before initializing client
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    logger.warning("OPENAI_API_KEY not set - API calls will fail")
-client = OpenAI(api_key=api_key)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 class ChatRequest(BaseModel):
     """Request schema for chat endpoint."""
