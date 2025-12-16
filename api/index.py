@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 from openai import OpenAI, APIError, RateLimitError, APIConnectionError
 import os
 import logging
-from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,23 +15,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan manager for startup/shutdown logic."""
-    # Startup: validate critical configuration
-    if not os.getenv("OPENAI_API_KEY"):
-        logger.error("OPENAI_API_KEY not configured")
-        raise RuntimeError("OPENAI_API_KEY environment variable must be set")
-    logger.info("Application startup complete")
-    yield
-    # Shutdown: cleanup if needed
-    logger.info("Application shutdown")
-
 app = FastAPI(
     title="Santa's Chat API",
     description="Chat with St. Nicholas powered by AI",
-    version="1.0.0",
-    lifespan=lifespan
+    version="1.0.0"
 )
 
 # CORS so the frontend can talk to backend
@@ -47,12 +33,16 @@ allowed_origins = (
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True
+    allow_credentials=False if allowed_origins == ["*"] else True
 )
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Validate OpenAI API key before initializing client
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    logger.warning("OPENAI_API_KEY not set - API calls will fail")
+client = OpenAI(api_key=api_key)
 
 class ChatRequest(BaseModel):
     """Request schema for chat endpoint."""
