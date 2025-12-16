@@ -3,23 +3,53 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from openai import OpenAI, APIError, RateLimitError, APIConnectionError
 import os
+import logging
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager for startup/shutdown logic."""
+    # Startup: validate critical configuration
+    if not os.getenv("OPENAI_API_KEY"):
+        logger.error("OPENAI_API_KEY not configured")
+        raise RuntimeError("OPENAI_API_KEY environment variable must be set")
+    logger.info("Application startup complete")
+    yield
+    # Shutdown: cleanup if needed
+    logger.info("Application shutdown")
+
 app = FastAPI(
     title="Santa's Chat API",
     description="Chat with St. Nicholas powered by AI",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS so the frontend can talk to backend
-# TODO: Update allow_origins for production deployment
+# Configure allowed origins from environment variable
+# Format: comma-separated list, e.g., "https://app1.com,https://app2.com"
+# Defaults to "*" for development if not set
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = (
+    allowed_origins_env.split(",") if allowed_origins_env != "*" else ["*"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"]
+    allow_origins=allowed_origins,
+    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_headers=["*"],
+    allow_credentials=True
 )
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -28,7 +58,7 @@ class ChatRequest(BaseModel):
     """Request schema for chat endpoint."""
     message: str = Field(
         min_length=1,
-        max_length=1000,
+        max_length=1000,  # ~250 tokens for gpt-4o-mini, prevents excessive API costs
         description="User message to St. Nicholas"
     )
 
@@ -57,12 +87,6 @@ def root():
 )
 def chat(request: ChatRequest) -> ChatResponse:
     """Process chat message and return AI response."""
-    if not os.getenv("OPENAI_API_KEY"):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="OPENAI_API_KEY not configured"
-        )
-    
     try:
         user_message = request.message
         response = client.chat.completions.create(
@@ -90,12 +114,16 @@ def chat(request: ChatRequest) -> ChatResponse:
             detail="Unable to connect to OpenAI API"
         )
     except APIError as e:
+        # Log full error for debugging (server-side only)
+        logger.error(f"OpenAI API error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"OpenAI API error: {str(e)}"
+            detail="An error occurred while processing your request"
         )
     except Exception as e:
+        # Log full error for debugging (server-side only)
+        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}"
+            detail="An error occurred while processing your request"
         )

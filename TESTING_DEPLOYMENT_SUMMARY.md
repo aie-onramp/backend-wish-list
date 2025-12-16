@@ -115,7 +115,7 @@ curl -X POST http://localhost:8000/api/chat \
 ### 1. Deploy to Vercel
 
 ```bash
-cd /home/donbr/aie-onramp/app/backend-wish-list
+cd backend-wish-list
 
 # Deploy to production
 vercel --prod
