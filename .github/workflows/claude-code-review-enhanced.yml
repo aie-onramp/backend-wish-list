@@ -1,0 +1,224 @@
+name: Claude Code Review (Enhanced)
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    # Optional: Only run on specific file changes
+    # paths:
+    #   - "api/**/*.py"
+    #   - "pyproject.toml"
+    #   - "requirements.txt"
+
+jobs:
+  claude-review:
+    # Optional: Filter by PR author
+    # if: |
+    #   github.event.pull_request.user.login == 'external-contributor' ||
+    #   github.event.pull_request.user.login == 'new-developer' ||
+    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review (Enhanced with Anti-Circular Logic)
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            # CONTEXT: FastAPI + Vercel Serverless Backend
+            This is a minimal serverless FastAPI backend with:
+            - Single endpoint: POST /api/chat
+            - OpenAI gpt-4o-mini integration
+            - No database, stateless design
+            - Deployment: Vercel Serverless Functions
+
+            Review standards: See .github/REVIEW_GUIDELINES.md for complete details.
+
+            # PHASE 1: Current State Validation
+
+            Analyze the PR diff against these architecture patterns:
+
+            ## Architecture Validation
+            - OpenAI client initialized ONCE at module level (correct pattern for reuse)
+            - Lifespan handler validates config but WARNS, doesn't raise exceptions (serverless compatibility)
+            - No database/state management (stateless design)
+            - Environment variables: OPENAI_API_KEY, ALLOWED_ORIGINS, ENVIRONMENT
+
+            ## API Design Validation
+            - Pydantic BaseModel for request/response (ChatRequest, ChatResponse)
+            - HTTPException with fastapi.status codes (not raw integers)
+            - CORS middleware with SPECIFIC origins (not wildcard ["*"])
+            - OpenAPI metadata: summary, description, responses dict
+            - Field validators: min_length, max_length constraints
+
+            ## OpenAI Integration Validation
+            - Direct OpenAI SDK usage (no frameworks)
+            - Error handling: RateLimitError → 429, APIConnectionError → 503, APIError → 500
+            - Single client instance reused (not recreated per request)
+            - Model: gpt-4o-mini (cost awareness)
+
+            ## Security Validation
+            - No hardcoded OPENAI_API_KEY in code
+            - CORS allows SPECIFIC origins only (not ["*"])
+            - API docs disabled in production (ENVIRONMENT=production)
+            - No .env files committed
+            - Lifespan handler warns, doesn't crash
+
+            ## Deployment Validation (Vercel Serverless)
+            - requirements.txt = production deps ONLY (test deps in pyproject.toml)
+            - Lifespan handler compatible with cold starts (warns, doesn't raise)
+            - vercel.json routes to /api/index.py
+
+            ---
+
+            # PHASE 2: Gap Analysis (ONLY NEW ISSUES)
+
+            Based on Phase 1 validation, identify ONLY items that:
+            1. Are MISSING (don't exist at all)
+            2. Are INCORRECT (exist but implemented wrong)
+            3. Create SECURITY RISKS
+
+            DO NOT re-flag items that passed Phase 1 validation.
+
+            ## Anti-Circular Prevention Rules:
+
+            ❌ DO NOT suggest adding lifespan handler if it already exists
+            ❌ DO NOT flag module-level OpenAI client init as a problem (it's correct)
+            ❌ DO NOT recommend adding test deps to requirements.txt (they belong in pyproject.toml)
+            ❌ DO NOT suggest removing lifespan for serverless (Vercel supports it since 2024)
+            ❌ DO NOT re-validate items from Phase 1 that passed
+
+            ## Gap Categories:
+
+            **Missing Components:**
+            - Response models not defined
+            - OpenAPI metadata missing
+            - Error handling incomplete
+            - Type hints missing
+
+            **Code Quality Issues:**
+            - Hardcoded values
+            - print() instead of logging
+            - Missing type hints
+            - Bare exception catches
+
+            **Security Gaps:**
+            - Wildcard CORS (allows API abuse)
+            - Hardcoded secrets
+            - Public API docs in production
+            - Missing environment validation
+
+            **Deployment Issues:**
+            - Test deps in requirements.txt (wrong)
+            - RuntimeError in lifespan (breaks cold starts)
+            - Missing vercel.json routing
+
+            ---
+
+            # PHASE 3: Recommendations (FORWARD-LOOKING ONLY)
+
+            For gaps identified in Phase 2, create actionable recommendations.
+
+            ## Recommendation Format:
+
+            **Issue:** [Describe the gap from Phase 2]
+            **Impact:** [Security/Reliability/Code Quality]
+            **Fix:** [Specific code change with example]
+            **Reference:** [Link to .github/REVIEW_GUIDELINES.md section or official docs]
+
+            ## Example Recommendation:
+
+            **Issue:** CORS configuration uses wildcard origins
+            **Impact:** SECURITY - Allows any website to call backend and consume OpenAI credits
+            **Fix:**
+            ```python
+            allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+            if not allowed_origins_env:
+                allowed_origins = ["http://localhost:3000", "http://localhost:5173"]
+            else:
+                allowed_origins = allowed_origins_env.split(",")
+
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=allowed_origins,  # Specific origins only
+                allow_credentials=False,
+                ...
+            )
+            ```
+            **Reference:** [CORS Security](.github/REVIEW_GUIDELINES.md#security-checklist-critical)
+
+            ---
+
+            # PHASE 4: Prioritization
+
+            Rank findings by impact:
+
+            ## CRITICAL (Security/Deployment Blockers)
+            - Wildcard CORS
+            - Hardcoded secrets
+            - Public docs in production
+            - Deployment config errors
+
+            ## HIGH (Reliability/Code Quality)
+            - Missing error handling
+            - RuntimeError in lifespan
+            - Missing type hints
+            - Wrong HTTP status codes
+
+            ## MEDIUM (Best Practices)
+            - Missing OpenAPI metadata
+            - Incomplete validators
+            - Missing logging
+
+            ## LOW (Style/Documentation)
+            - Missing docstrings
+            - Documentation updates
+
+            ---
+
+            # OUTPUT FORMAT
+
+            Use `gh pr comment` to post a structured review:
+
+            ## Summary
+            - Total issues found: [count]
+            - Critical: [count]
+            - High: [count]
+            - Medium: [count]
+            - Low: [count]
+
+            ## Critical Issues
+            [List with file:line references and fixes]
+
+            ## High Priority Issues
+            [List with file:line references and fixes]
+
+            ## Recommendations
+            [Medium/Low priority improvements]
+
+            ## Anti-Circular Validation
+            ✅ Verified no circular patterns detected
+            ✅ All recommendations are forward-looking
+            ✅ No re-validation of previously approved patterns
+
+            ---
+
+            **Review Standards:** All recommendations validated against `.github/REVIEW_GUIDELINES.md` and official FastAPI + Vercel documentation.
+
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
